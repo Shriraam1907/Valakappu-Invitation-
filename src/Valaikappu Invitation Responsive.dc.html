@@ -8,6 +8,13 @@
 <body>
 <x-dc>
 <helmet>
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light">
+<meta name="theme-color" content="#F7F2E6">
+<style>
+:root{color-scheme:light only;forced-color-adjust:none}
+html,body{color-scheme:light only}
+</style>
 <script src="art/music-b64.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -298,10 +305,21 @@ class Component extends DCLogic {
         if (loopStart > 0 && audio.currentTime < loopStart) {
           try { audio.currentTime = loopStart; } catch (e) {}
         }
-        await audio.play();      // rejects if autoplay is blocked
+        audio.muted = false;
+        await audio.play();      // rejects if audible autoplay is blocked
         fade(vol, 2400);         // slow swell in
         on = true; paint();
-      } catch (e) { /* blocked — stay off, the gesture fallback retries */ }
+      } catch (e) {
+        // Audible autoplay refused. MUTED autoplay is always permitted, so start
+        // the track silently and in sync — the first gesture just unmutes it,
+        // which needs no new play() call and so is never blocked.
+        try {
+          audio.muted = true;
+          audio.volume = vol;
+          await audio.play();
+          on = true; paint();
+        } catch (e2) { /* even muted refused — gesture fallback retries */ }
+      }
       loading = false;
     };
 
@@ -310,7 +328,15 @@ class Component extends DCLogic {
       on = false; paint();
     };
 
-    btn.addEventListener("click", () => on ? stop() : play());
+    btn.addEventListener("click", () => {
+      if (audio.muted) {           // unmute the already-running muted autoplay
+        audio.muted = false;
+        audio.volume = 0;
+        fade(vol, 900);
+        on = true; paint();
+      } else if (on) stop();
+      else play();
+    });
     paint();
 
     // try to autoplay immediately; browsers may refuse without a gesture
@@ -318,11 +344,16 @@ class Component extends DCLogic {
 
     // fallback: start on the visitor's first interaction if autoplay was blocked
     const kick = () => {
-      ["pointerdown", "touchstart", "keydown", "wheel"].forEach(ev =>
+      ["pointerdown", "touchstart", "keydown", "wheel", "scroll"].forEach(ev =>
         window.removeEventListener(ev, kick));
-      if (!on) play();
+      if (audio.muted) {           // muted autoplay already running — just unmute
+        audio.muted = false;
+        audio.volume = 0;
+        fade(vol, 1600);
+        on = true; paint();
+      } else if (!on) play();
     };
-    ["pointerdown", "touchstart", "keydown", "wheel"].forEach(ev =>
+    ["pointerdown", "touchstart", "keydown", "wheel", "scroll"].forEach(ev =>
       window.addEventListener(ev, kick, { once: false, passive: true }));
     this.stopMusic = stop;
   }
